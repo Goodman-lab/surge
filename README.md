@@ -47,7 +47,7 @@ Make chemical graphs from a formula. Version 2.0.
          of distinct atoms (including H) that an atom can be bonded to
          Coordination number > 4 is only allowed if no neighbours are H
   -B#,...,# Specify sets of substructures to avoid (details in manual)
-     1 = no triple bonds in rings up to length 7
+     1 = no triple bonds in rings up to length 9
      2 = Bredt's rule for two rings ij with one bond in
            common (33, 34, 35, 36, 44, 45)
      3 = Bredt's rule for two rings ij with two bonds in

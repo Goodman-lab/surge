@@ -82,7 +82,7 @@
 "         of distinct atoms (including H) that an atom can be bonded to\n" \
 "         Coordination number > 4 is only allowed if no neighbours are H\n" \
 "  -B#,...,# Specify sets of substructures to avoid (details in manual)\n" \
-"     1 = no triple bonds in rings up to length 7\n" \
+"     1 = no triple bonds in rings up to length 9\n" \
 "     2 = Bredt's rule for two rings ij with one bond in\n" \
 "           common (33, 34, 35, 36, 44, 45)\n" \
 "     3 = Bredt's rule for two rings ij with two bonds in\n" \
@@ -2152,12 +2152,12 @@ surgeproc(FILE *outfile, graph *gin, int n)
     }
     if (Rswitch) arom_find_cycles(g,n);
 
-    if (bad1)  /* no triple bonds in rings smaller than 7 */
+    if (bad1)  /* no triple bonds in rings smaller than 9 */
     {
         for (i = 0; i < ringcount; ++i)
         {
             cyc = inducedcycle[i];
-            if (POPCOUNT(cyc) <= 7)
+            if (POPCOUNT(cyc) <= 9)
                 while (cyc)
                 {
                     TAKEBIT(j,cyc);
