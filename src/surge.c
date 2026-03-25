@@ -48,10 +48,10 @@
 
 #ifdef ZLIB
 #define USAGE \
-  "[-oFILE] [-z] [-A|-S|-F] [-T] [-e#|-e#:#] [-R] [-d#] [-c#] [-m#/#] formula"
+  "[-oFILE] [-z] [-A|-S|-F] [-T] [-e#|-e#:#] [-B#,...,#] [-K#,...,#] [-R] [-d#] [-c#] [-m#/#] formula"
 #else
 #define USAGE \
-  "[-oFILE] [-A|-S|-F] [-T] [-e#|-e#:#] [-R] [-d#] [-c#] [-m#/#] formula"
+  "[-oFILE] [-A|-S|-F] [-T] [-e#|-e#:#] [-B#,...,#] [-K#,...,#] [-R] [-d#] [-c#] [-m#/#] formula"
 #endif
 
 #define HELPUSECMD
@@ -94,6 +94,9 @@
 "     7 = no K_33 or K_24 structure\n" \
 "     8 = none of cone of P4 or K4 with 3-ear\n" \
 "     9 = no atom in more than one ring of length 3 or 4\n" \
+"  -K#,...,# Annotate SMILES output with pass/fail for the same sets as -B\n" \
+"           (1 means pass, 0 means fail). This does not filter molecules.\n" \
+"           Currently only supported with -S output.\n" \
 "  -R    Enable aromaticity detection (filters duplicate Kekule structures)\n" \
 "  -v    Write more information to stderr\n" \
 "  -m#/# Do only a part. The two numbers are res/mod where 0<=res<mod.\n" \
@@ -167,6 +170,22 @@ static boolean bad8;    /* Avoid cone(P4) and K4 with 3-ear */
       /* bad8 is turned off if -t and -f options make it impossible */
 static boolean bad9;    /* No atom on two rings of length 3 or 4 */
       /* bad9 is turned off if -t and -f options make it impossible */
+
+/* Used with -K annotation output (separate from -B filtering) */
+static boolean kswitch;
+static boolean kbad1;
+static boolean kbad2;
+static boolean kbad3;
+static boolean kbad4;
+static boolean kbad5;
+static boolean kbad6;
+static boolean kbad7;
+static boolean kbad8;
+static boolean kbad9;
+static setword k_forbid_triple_edges; /* Selected edges must have mult <= 1 */
+static setword k_forbid_mult_edges; /* Selected edges must have mult 0 */
+static int k_pair1[MAXN],k_pair2[MAXN],k_paircount; /* No =A= pairs */
+static boolean k_skeleton_ok; /* Combined pass/fail from skeleton-only checks */
 
 static boolean needcoordtest;
 
@@ -590,6 +609,61 @@ isplanar(graph *g, int n)
 /******************************************************************/
 
 static void
+k_add_allene_pair(int e1, int e2)
+{
+    int i,t;
+
+    if (e1 == e2) return;
+    if (e1 > e2)
+    {
+        t = e1;
+        e1 = e2;
+        e2 = t;
+    }
+
+    for (i = 0; i < k_paircount; ++i)
+        if (k_pair1[i] == e1 && k_pair2[i] == e2) return;
+
+    if (k_paircount == MAXN)
+        gt_abort(">E surge : too many -K A=A=A checks\n");
+
+    k_pair1[k_paircount] = e1;
+    k_pair2[k_paircount] = e2;
+    ++k_paircount;
+}
+
+static boolean
+k_molecule_passes_badlists(int *mult)
+{
+    setword w;
+    int i,e;
+
+    if (!kswitch) return TRUE;
+    if (!k_skeleton_ok) return FALSE;
+
+    w = k_forbid_triple_edges;
+    while (w)
+    {
+        TAKEBIT(e,w);
+        if (mult[e] > 1) return FALSE;
+    }
+
+    w = k_forbid_mult_edges;
+    while (w)
+    {
+        TAKEBIT(e,w);
+        if (mult[e] > 0) return FALSE;
+    }
+
+    for (i = 0; i < k_paircount; ++i)
+        if (mult[k_pair1[i]] > 0 && mult[k_pair2[i]] > 0) return FALSE;
+
+    return TRUE;
+}
+
+/******************************************************************/
+
+static void
 SMILESoutput(int *vcol, int n, int *hyd, int *mult, int ne)
 /* Write molecules in SMILES format */
 {
@@ -598,6 +672,12 @@ SMILESoutput(int *vcol, int n, int *hyd, int *mult, int ne)
     const struct elementstruct *thiselement;
 
     p = line;
+
+    if (kswitch)
+    {
+        *(p++) = (k_molecule_passes_badlists(mult) ? '1' : '0');
+        *(p++) = '\t';
+    }
 
     for (i = 0; i < smileslen; ++i)
     {
@@ -2075,6 +2155,306 @@ find6rings(void)
 
 /******************************************************************/
 
+static boolean
+k_graph_violates_bad7(graph *g, int n)
+{
+    int x,y,z;
+
+    if (n >= 6)
+    {
+        for (x = n; --x >= 2;)
+        if (POPCOUNT(g[x]) >= 3)
+            for (y = x; --y >= 1;)
+            if (POPCOUNT(g[x]&g[y]) >= 3)
+                for (z = y; --z >= 0;)
+                    if (POPCOUNT(g[x]&g[y]&g[z]) >= 3) return TRUE;
+
+        for (x = n; --x >= 1;)
+        if (POPCOUNT(g[x]) >= 4)
+            for (y = x; --y >= 0;)
+                if (POPCOUNT(g[x]&g[y]) >= 4) return TRUE;
+    }
+
+    return FALSE;
+}
+
+static boolean
+k_graph_violates_bad8(graph *g, int n)
+{
+    setword w,gx,gxy,gxya,gi,gj;
+    int x,y,a,b,i,j;
+    int i1,i2,i3,i4,d1,d2,d3,d4;
+    int v[MAXN],k;
+
+    if (n >= 5)
+    {
+        for (x = n; --x >= 0;)
+        if (POPCOUNT(g[x]) == 4)
+        {
+            w = gx = g[x];
+            TAKEBIT(i1,w);
+            TAKEBIT(i2,w);
+            TAKEBIT(i3,w);
+            i4 = FIRSTBITNZ(w);
+            d1 = POPCOUNT(g[i1]&gx);
+            d2 = POPCOUNT(g[i2]&gx);
+            d3 = POPCOUNT(g[i3]&gx);
+            d4 = POPCOUNT(g[i4]&gx);
+            if (d1 > 0 && d2 > 0 && d3 > 0 && d4 > 0
+               && ((d1 >= 2)+(d2 >= 2)+(d3 >= 2)+(d4 >= 2)) >= 2)
+                return TRUE;
+        }
+        else if (POPCOUNT(g[x]) > 4)
+        {
+            w = gx = g[x];
+            k = 0;
+            while (w)
+            {
+                TAKEBIT(y,w);
+                if (POPCOUNT(g[y]&gx) >= 2) v[k++] = y;
+            }
+            for (--k; k >= 1; --k)
+            for (j = 0; j < k; ++j)
+                if ((g[v[k]] & bit[v[j]]) &&
+                          POPCOUNT((g[v[k]]|g[v[j]])&gx) >= 4)
+                    return TRUE;
+        }
+    }
+
+    if (n >= 6)
+    {
+        for (x = n; --x >= 1;)
+        if (POPCOUNT(g[x]) >= 4)
+        {
+            for (y = x; --y >= 0;)
+            if (POPCOUNT(g[y]) >= 4 && (g[y]&bit[x]))
+            {
+                gxy = g[x] & g[y];
+                while (gxy)
+                {
+                    TAKEBIT(a,gxy);
+                    gxya = gxy & g[a];
+                    while (gxya)
+                    {
+                        TAKEBIT(b,gxya);
+                        w = bit[x] | bit[y] | bit[a] | bit[b];
+                        gi = g[x] & ~w;
+                        gj = g[y] & ~w;
+                        while (gi)
+                        {
+                            TAKEBIT(i,gi);
+                            if ((g[i] & gj)) return TRUE;
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    return FALSE;
+}
+
+static boolean
+k_graph_violates_bad9(graph *g, int n)
+{
+    setword cycle34seen[MAXN+1];
+    setword c34,w,ww,cyc;
+    int m,i;
+
+    cycle34seen[0] = 0;
+
+    for (m = 1; m <= n; ++m)
+    {
+        if (m <= 2)
+        {
+            cycle34seen[m] = 0;
+            continue;
+        }
+
+        c34 = cycle34seen[m-1];
+
+        w = g[m-1] & BITMASK(m-1);
+        while (w)
+        {
+            TAKEBIT(i,w);
+            ww = g[i] & w;
+            if (POPCOUNT(ww) > 1) return TRUE;
+            if (ww)
+            {
+                cyc = bit[m-1] | bit[i] | ww;
+                if ((c34 & cyc)) return TRUE;
+                c34 |= cyc;
+            }
+        }
+
+        for (i = m-1; --i >= 0;)
+        {
+            w = (g[i] & g[m-1]) & BITMASK(m-1);
+            if (POPCOUNT(w) > 2) return TRUE;
+            if (POPCOUNT(w) == 2)
+            {
+                cyc = bit[m-1] | bit[i] | w;
+                if ((c34 & cyc)) return TRUE;
+                c34 |= cyc;
+            }
+        }
+
+        cycle34seen[m] = c34;
+    }
+
+    return FALSE;
+}
+
+static void
+k_prepare_skeleton_checks(graph *g, int n)
+{
+    setword w,ww,wxy,cycle8;
+    int i,j,k,isize,jsize,x,e1,e2,e3;
+
+    k_forbid_triple_edges = 0;
+    k_forbid_mult_edges = 0;
+    k_paircount = 0;
+    k_skeleton_ok = TRUE;
+
+    if (!kswitch) return;
+
+    if (kbad1)  /* no triple bonds in rings up to length 9 */
+    {
+        for (i = 0; i < ringcount; ++i)
+            if (POPCOUNT(inducedcycle[i]) <= 9)
+                k_forbid_triple_edges |= inducedcycle[i];
+    }
+
+    if (kbad2)  /* Bredt's rule for one common bond */
+    {
+        for (i = 0; i < ringcount-1; ++i)
+        {
+            isize = POPCOUNT(inducedcycle[i]);
+            if (isize > 6) continue;
+            for (j = i+1; j < ringcount; ++j)
+            {
+                jsize = POPCOUNT(inducedcycle[j]);
+                if (jsize > 6) continue;
+
+                w = inducedcycle[i] & inducedcycle[j];
+                if (POPCOUNT(w) != 1) continue;
+
+                if (isize*jsize <= 15)
+                    k_forbid_mult_edges |= w;
+
+                if (isize+jsize <= 9)
+                {
+                    wxy = edge[FIRSTBITNZ(w)].xy;
+                    ww = (inducedcycle[i] | inducedcycle[j]) & ~w;
+                    while (ww)
+                    {
+                        TAKEBIT(k,ww);
+                        if ((edge[k].xy & wxy))
+                            k_forbid_mult_edges |= bit[k];
+                    }
+                }
+            }
+        }
+    }
+
+    if (kbad3)  /* Bredt's rule for two common bonds */
+    {
+        for (i = 0; i < ringcount-1; ++i)
+        {
+            isize = POPCOUNT(inducedcycle[i]);
+            if (isize == 3 || isize > 6) continue;
+
+            for (j = i+1; j < ringcount; ++j)
+            {
+                jsize = POPCOUNT(inducedcycle[j]);
+                if (jsize == 3 || jsize > 6 || isize+jsize == 12) continue;
+
+                w = inducedcycle[i] & inducedcycle[j];
+                if (POPCOUNT(w) != 2) continue;
+
+                ww = w;
+                TAKEBIT(k,ww);
+                e1 = k;
+                e2 = FIRSTBITNZ(ww);
+                k_forbid_mult_edges |= bit[e1] | bit[e2];
+                wxy = edge[e1].xy ^ edge[e2].xy;
+
+                ww = (inducedcycle[i] | inducedcycle[j]) & ~w;
+                while (ww)
+                {
+                    TAKEBIT(k,ww);
+                    if ((edge[k].xy & wxy))
+                        k_forbid_mult_edges |= bit[k];
+                }
+            }
+        }
+    }
+
+    if (kbad4) /* Bredt's rule for two hexagons with 3 bonds in common */
+    {
+        for (i = 0; i < ringcount-1; ++i)
+        {
+            if (POPCOUNT(inducedcycle[i]) != 6) continue;
+
+            for (j = i+1; j < ringcount; ++j)
+            {
+                if (POPCOUNT(inducedcycle[j]) != 6) continue;
+
+                w = inducedcycle[i] & inducedcycle[j];
+                if (POPCOUNT(w) != 3) continue;
+
+                ww = inducedcycle[i] | inducedcycle[j];
+                TAKEBIT(e1,w);
+                TAKEBIT(e2,w);
+                e3 = FIRSTBITNZ(w);
+
+                wxy = edge[e1].xy ^ edge[e2].xy ^ edge[e3].xy;
+                while (ww)
+                {
+                    TAKEBIT(k,ww);
+                    if ((edge[k].xy & wxy))
+                        k_forbid_mult_edges |= bit[k];
+                }
+            }
+        }
+    }
+
+    if (kbad5)  /* No A=A=A, whether in ring or not */
+    {
+        for (i = 0; i < n; ++i)
+        if (deg[i] == 2)
+        {
+            x = FIRSTBITNZ(g[i]);
+            e1 = edgenumber[i][x];
+            e2 = edgenumber[i][FIRSTBITNZ(g[i]&~bit[x])];
+            k_add_allene_pair(e1,e2);
+        }
+    }
+
+    if (kbad6)  /* No A=A=A in rings up to length 8 */
+    {
+        cycle8 = 0;
+        for (i = 0; i < ringcount; ++i)
+            if (POPCOUNT(inducedcycle[i]) <= 8) cycle8 |= inducedcycle[i];
+
+        for (i = 0; i < n; ++i)
+        if (deg[i] == 2)
+        {
+            x = FIRSTBITNZ(g[i]);
+            e1 = edgenumber[i][x];
+            if (!(bit[e1] & cycle8)) continue;
+            e2 = edgenumber[i][FIRSTBITNZ(g[i]&~bit[x])];
+            k_add_allene_pair(e1,e2);
+        }
+    }
+
+    if (kbad7 && k_graph_violates_bad7(g,n)) k_skeleton_ok = FALSE;
+    if (kbad8 && k_graph_violates_bad8(g,n)) k_skeleton_ok = FALSE;
+    if (kbad9 && k_graph_violates_bad9(g,n)) k_skeleton_ok = FALSE;
+}
+
+/******************************************************************/
+
 void
 surgeproc(FILE *outfile, graph *gin, int n)
 /* This is called by geng for each graph. */
@@ -2307,6 +2687,8 @@ surgeproc(FILE *outfile, graph *gin, int n)
             }
         }
     }
+
+    k_prepare_skeleton_checks(g,n);
 
     if (outlevel == 1)
     {
@@ -2668,14 +3050,14 @@ main(int argc, char *argv[])
 {
     int argnum,i,j;
     boolean badargs,Gswitch,mswitch,Oswitch,eswitch,notriples;
-    boolean oswitch,Bswitch,cswitch,Dswitch;
+    boolean oswitch,Bswitch,Kswitchopt,cswitch,Dswitch;
     char *extra1,*extra2,*formula,*arg,sw,*outfilename;
     long res,mod;
     int mine,maxe,maxd,maxc;
     long eminval,emaxval;
     double t1,t2;
-    long badlist[BADLISTS];
-    int badlen,outf;
+    long badlist[BADLISTS],kbadlist[BADLISTS];
+    int badlen,kbadlen,outf;
 
     HELP;
 
@@ -2695,12 +3077,15 @@ main(int argc, char *argv[])
     argnum = 0;
     badargs = verbose = Gswitch = mswitch = FALSE;
     uswitch = eswitch = notriples = smiles = FALSE;
-    oswitch = gzip = alphabetic = Bswitch = FALSE;
+    oswitch = gzip = alphabetic = Bswitch = Kswitchopt = FALSE;
     tswitch = fswitch = pswitch = bipartite = FALSE;
     cswitch = planar = xswitch = Dswitch = FALSE;
     Oswitch = Cswitch = FALSE; outlevel = 4;
     extra1 = extra2 = formula = NULL;
     bad1 = bad2 = bad3 = bad4 = bad5 = bad6 = bad7 = bad8 = bad9 = FALSE;
+    kswitch = FALSE;
+    kbad1 = kbad2 = kbad3 = kbad4 = kbad5 = kbad6 = FALSE;
+    kbad7 = kbad8 = kbad9 = FALSE;
 
     for (j = 1; !badargs && j < argc; ++j)
     {
@@ -2743,6 +3128,7 @@ main(int argc, char *argv[])
                 else SWBOOLEAN('R',Rswitch)
                 else SWBOOLEAN('x',xswitch)
                 else SWSEQUENCEMIN('B',",",Bswitch,badlist,1,BADLISTS,badlen,"surge -B")
+                else SWSEQUENCEMIN('K',",",Kswitchopt,kbadlist,1,BADLISTS,kbadlen,"surge -K")
                 else SWRANGE('e',":-",eswitch,eminval,emaxval,"surge -e")
                 else SWRANGE('t',":-",tswitch,min3cycles,max3cycles,"surge -t")
                 else SWRANGE('f',":-",fswitch,min4cycles,max4cycles,"surge -f")
@@ -2773,6 +3159,26 @@ main(int argc, char *argv[])
                           /* Don't forget initialization if you add more */
                     }
                     Bswitch = FALSE;
+                }
+
+                if (Kswitchopt)
+                {
+                    kswitch = TRUE;
+                    for (i = 0; i < kbadlen; ++i)
+                    {
+                        if (kbadlist[i] < 1 || kbadlist[i] > BADLISTS)
+                        gt_abort(">E surge : invalid -K list number\n");
+                        if      (kbadlist[i] == 1) kbad1 = TRUE;
+                        else if (kbadlist[i] == 2) kbad2 = TRUE;
+                        else if (kbadlist[i] == 3) kbad3 = TRUE;
+                        else if (kbadlist[i] == 4) kbad4 = TRUE;
+                        else if (kbadlist[i] == 5) kbad5 = TRUE;
+                        else if (kbadlist[i] == 6) kbad6 = TRUE;
+                        else if (kbadlist[i] == 7) kbad7 = TRUE;
+                        else if (kbadlist[i] == 8) kbad8 = TRUE;
+                        else if (kbadlist[i] == 9) kbad9 = TRUE;
+                    }
+                    Kswitchopt = FALSE;
                 }
             }
         }
@@ -2815,11 +3221,17 @@ main(int argc, char *argv[])
         outfilename = "stdout";
 
     if (bad5) bad6 = FALSE;        /* bad6 is a subset of bad5 */
+    if (kbad5) kbad6 = FALSE;      /* kbad6 is a subset of kbad5 */
     if (notriples) bad1 = FALSE;
+    if (notriples) kbad1 = FALSE;
     if (tswitch && fswitch && max3cycles+max4cycles <= 1)
         bad9 = FALSE;
+    if (tswitch && fswitch && max3cycles+max4cycles <= 1)
+        kbad9 = FALSE;
 
-    needrings = (bad1 || bad2 || bad3 || bad4 || bad6 || Cswitch); 
+    needrings = (bad1 || bad2 || bad3 || bad4 || bad6
+                 || kbad1 || kbad2 || kbad3 || kbad4 || kbad6
+                 || Cswitch);
 
     if (fswitch && max4cycles < 6) bad7 = FALSE;
 
@@ -2827,6 +3239,15 @@ main(int argc, char *argv[])
     if (fswitch && max4cycles < 2) bad8 = FALSE;
     if (pswitch && max5cycles == 0) bad8 = FALSE;
     if (hswitch && max6cycles < 3) bad4 = FALSE;
+    if (tswitch && max3cycles < 3) kbad8 = FALSE;
+    if (fswitch && max4cycles < 2) kbad8 = FALSE;
+    if (pswitch && max5cycles == 0) kbad8 = FALSE;
+    if (hswitch && max6cycles < 3) kbad4 = FALSE;
+
+    if (!Oswitch) outlevel = 4;
+
+    if (kswitch && (!smiles || outlevel != 4))
+        gt_abort(">E surge : -K is only supported with -S output (-O4)\n");
 
     if (gzip)
     {
@@ -2852,8 +3273,6 @@ main(int argc, char *argv[])
     }
 
     maxbond = (notriples ? 1 : 2);
-
-    if (!Oswitch) outlevel = 4;
 
     if (mswitch)
     {

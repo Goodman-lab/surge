@@ -20,7 +20,7 @@ For large sets of structures, the -z option for compressing the output in gzip f
 `surge -help` will show all options:
 
 ```
-Usage: ./surge [-oFILE] [-z] [-A|-S|-F] [-T] [-e#|-e#:#] [-R] [-d#] [-c#] [-m#/#] formula
+Usage: ./surge [-oFILE] [-z] [-A|-S|-F] [-T] [-e#|-e#:#] [-B#,...,#] [-K#,...,#] [-R] [-d#] [-c#] [-m#/#] formula
 
 Make chemical graphs from a formula. Version 2.0.
   Known elements are C,B,N,P,O,S,H,Cl,F,Br,I at their lowest valences.
@@ -59,6 +59,9 @@ Make chemical graphs from a formula. Version 2.0.
      7 = no K_33 or K_24 structure
      8 = none of cone of P4 or K4 with 3-ear
      9 = no atom in more than one ring of length 3 or 4
+  -K#,...,# Annotate SMILES output with pass/fail for the same sets as -B
+           (1 means pass, 0 means fail). This does not filter molecules.
+           Currently only supported with -S output.
   -R    Enable aromaticity detection (filters duplicate Kekule structures)
   -v    Write more information to stderr
   -m#/# Do only a part. The two numbers are res/mod where 0<=res<mod.
