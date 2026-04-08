@@ -246,6 +246,7 @@ static boolean hswitch;
 static long min6cycles,max6cycles;  /* number of cycles of length 6 */
 static int count6cyc[MAXN+1];
 static long minxcycles,maxxcycles;  /* number of chord-free cycles > 6 */
+static int countxcyc[MAXN+1];
 static boolean Cswitch;
 static long minCrings,maxCrings;  /* Number of carbon 6-rings */
 
@@ -1713,11 +1714,68 @@ surgepreprune(graph *g, int n, int maxn)
     return 0;
 }
 
+/******************************************************************/
+
+static int x_newlongcycles;
+
+static void
+x_count_long_induced_paths(graph *g, int start, setword body, setword last, int pathlen)
+/* Count induced cycles of length > 6 that can be completed from the
+   current induced path.  pathlen is the current path length in edges,
+   including the edge from origin to start. */
+{
+    setword gs,w;
+    int i;
+
+    gs = g[start];
+
+    w = gs & last;
+    if (pathlen + 2 > 6) x_newlongcycles += POPCOUNT(w);
+
+    w = gs & body;
+    while (w)
+    {
+        TAKEBIT(i,w);
+        x_count_long_induced_paths(g,i,body&~gs,last&~bit[i]&~gs,pathlen+1);
+    }
+}
+
+static int
+x_count_new_long_cycles(graph *g, int n)
+/* Count induced cycles of length > 6 that contain vertex n-1.
+   Each such cycle is counted exactly once at the step where its
+   highest-indexed vertex is added. */
+{
+    setword body,last,cno;
+    int origin,start,i;
+
+    if (n <= 6) return 0;
+
+    origin = n - 1;
+
+    body = 0;
+    for (i = 0; i < origin; ++i)
+        if (POPCOUNT(g[i]) > 1) body |= bit[i];
+
+    last = g[origin] & body;
+    cno = g[origin] | bit[origin];
+
+    x_newlongcycles = 0;
+
+    while (last)
+    {
+        TAKEBIT(start,last);
+        x_count_long_induced_paths(g,start,body&~cno,last,1);
+    }
+
+    return x_newlongcycles;
+}
+
 int
 surgeprune(graph *g, int n, int nmax)
 /* This is a procedure that geng will call at each level
 using the PRUNE service.
-The options -t, -f, -p, -h, -B7,8 are implemented here by
+The options -t, -f, -p, -h, -x, -B7,8 are implemented here by
 incrementally updating the required counts. */
 {
     setword w,ax,ay,gx,gxy,gxya,gi,gj,gn,gxn,gyn,bitxyn;
@@ -1818,6 +1876,15 @@ incrementally updating the required counts. */
             if (count6cyc[n] > max6cycles) return 1;
         }
         if (n == nmax && count6cyc[n] < min6cycles)
+            return 1;
+    }
+
+    if (xswitch)
+    {
+        if (n <= 6) countxcyc[n] = 0;
+        else        countxcyc[n] = countxcyc[n-1] + x_count_new_long_cycles(g,n);
+        if (countxcyc[n] > maxxcycles) return 1;
+        if (n == nmax && countxcyc[n] < minxcycles)
             return 1;
     }
 
