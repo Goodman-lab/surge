@@ -48,10 +48,10 @@
 
 #ifdef ZLIB
 #define USAGE \
-  "[-oFILE] [-z] [-A|-S|-F] [-T] [-N] [-r] [-e#|-e#:#] [-x#|-x#:#] [-B#,...,#] [-K#,...,#] [-R] [-d#] [-c#] [-m#/#] formula"
+  "[-oFILE] [-z] [-A|-S|-F] [-T] [-H] [-N] [-r] [-e#|-e#:#] [-x#|-x#:#] [-B#,...,#] [-K#,...,#] [-R] [-d#] [-c#] [-m#/#] formula"
 #else
 #define USAGE \
-  "[-oFILE] [-A|-S|-F] [-T] [-N] [-r] [-e#|-e#:#] [-x#|-x#:#] [-B#,...,#] [-K#,...,#] [-R] [-d#] [-c#] [-m#/#] formula"
+  "[-oFILE] [-A|-S|-F] [-T] [-H] [-N] [-r] [-e#|-e#:#] [-x#|-x#:#] [-B#,...,#] [-K#,...,#] [-R] [-d#] [-c#] [-m#/#] formula"
 #endif
 
 #define HELPUSECMD
@@ -77,6 +77,7 @@
 "  -C# -C#:#  Limit the number of chord-free cycles 6 carbon atoms\n" \
 "  -b    Only rings of even length (same as only cycles of even length)\n" \
 "  -T    Disallow triple bonds\n" \
+"  -H    Disallow heteroatom-heteroatom bonds\n" \
 "  -N    Generate only structures with no multiple bonds\n" \
 "  -r    Traverse simple-edge counts from high to low\n" \
 "  -P    Require planarity\n" \
@@ -212,6 +213,7 @@ static boolean uswitch;  /* suppress output */
 static boolean verbose;  /* print more information to stderr */
 static boolean reverse_edge_order;  /* Run edge counts from maxe down to mine */
 static boolean only_no_multiple;  /* Only generate structures with mult[i] == 0 */
+static boolean no_hetero_hetero;  /* No bonds between two non-carbon atoms */
 static int outlevel;  /* 1 = geng only, 2 = geng+vcolg,
                        3 = geng+vcolg+multig, 4 = everything */
 static boolean smiles;  /* output in SMILES format */
@@ -1307,6 +1309,11 @@ colouredges(graph *g, int *vcolindex, int n)
                     || (element[vcol[i]].valence > 4 && hyd[i] > 0))
             needcoordtest = TRUE;
     }
+
+    if (no_hetero_hetero)
+        for (i = 0; i < ne; ++i)
+            if (vcol[edge[i].x] != carbonindex && vcol[edge[i].y] != carbonindex)
+                return;
 
 #ifdef SURGEPLUGIN_STEP2
     SURGEPLUGIN_STEP2
@@ -3132,7 +3139,7 @@ main(int argc, char *argv[])
     int no_mult_edges;
     boolean badargs,Gswitch,mswitch,Oswitch,eswitch,notriples;
     boolean oswitch,Bswitch,Kswitchopt,cswitch,Dswitch;
-    boolean Nswitch,rswitch;
+    boolean Hswitch,Nswitch,rswitch;
     char *extra1,*extra2,*formula,*arg,sw,*outfilename;
     long res,mod;
     int mine,maxe,maxd,maxc;
@@ -3162,7 +3169,7 @@ main(int argc, char *argv[])
     oswitch = gzip = alphabetic = Bswitch = Kswitchopt = FALSE;
     tswitch = fswitch = pswitch = bipartite = FALSE;
     cswitch = planar = xswitch = Dswitch = FALSE;
-    Nswitch = rswitch = FALSE;
+    Hswitch = Nswitch = rswitch = FALSE;
     Oswitch = Cswitch = FALSE; outlevel = 4;
     extra1 = extra2 = formula = NULL;
     bad1 = bad2 = bad3 = bad4 = bad5 = bad6 = bad7 = bad8 = bad9 = FALSE;
@@ -3202,6 +3209,7 @@ main(int argc, char *argv[])
                 else SWBOOLEAN('u',uswitch)
                 else SWBOOLEAN('v',verbose)
                 else SWBOOLEAN('T',notriples)
+                else SWBOOLEAN('H',Hswitch)
                 else SWBOOLEAN('N',Nswitch)
                 else SWBOOLEAN('r',rswitch)
                 else SWBOOLEAN('S',smiles)
@@ -3359,6 +3367,7 @@ main(int argc, char *argv[])
 
     reverse_edge_order = rswitch;
     only_no_multiple = Nswitch;
+    no_hetero_hetero = Hswitch;
 
     maxbond = (notriples ? 1 : 2);
 
