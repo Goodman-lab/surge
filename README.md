@@ -20,7 +20,7 @@ For large sets of structures, the -z option for compressing the output in gzip f
 `surge -help` will show all options:
 
 ```
-Usage: ./surge [-oFILE] [-z] [-A|-S|-F] [-T] [-e#|-e#:#] [-B#,...,#] [-K#,...,#] [-R] [-d#] [-c#] [-m#/#] formula
+Usage: ./surge [-oFILE] [-z] [-A|-S|-F] [-T] [-N] [-r] [-e#|-e#:#] [-B#,...,#] [-K#,...,#] [-R] [-d#] [-c#] [-m#/#] formula
 
 Make chemical graphs from a formula. Version 2.0.
   Known elements are C,B,N,P,O,S,H,Cl,F,Br,I at their lowest valences.
@@ -41,6 +41,8 @@ Make chemical graphs from a formula. Version 2.0.
   -C# -C#:#  Limit the number of chord-free cycles 6 carbon atoms
   -b    Only rings of even length (same as only cycles of even length)
   -T    Disallow triple bonds
+  -N    Generate only structures with no multiple bonds
+  -r    Traverse simple-edge counts from high to low
   -P    Require planarity
   -d#   Maximum degree not counting bond multiplicity or hydrogens (default 4)
   -c#   Maximum coordination number (default 4). This is the maximum number

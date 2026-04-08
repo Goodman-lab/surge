@@ -48,10 +48,10 @@
 
 #ifdef ZLIB
 #define USAGE \
-  "[-oFILE] [-z] [-A|-S|-F] [-T] [-e#|-e#:#] [-B#,...,#] [-K#,...,#] [-R] [-d#] [-c#] [-m#/#] formula"
+  "[-oFILE] [-z] [-A|-S|-F] [-T] [-N] [-r] [-e#|-e#:#] [-B#,...,#] [-K#,...,#] [-R] [-d#] [-c#] [-m#/#] formula"
 #else
 #define USAGE \
-  "[-oFILE] [-A|-S|-F] [-T] [-e#|-e#:#] [-B#,...,#] [-K#,...,#] [-R] [-d#] [-c#] [-m#/#] formula"
+  "[-oFILE] [-A|-S|-F] [-T] [-N] [-r] [-e#|-e#:#] [-B#,...,#] [-K#,...,#] [-R] [-d#] [-c#] [-m#/#] formula"
 #endif
 
 #define HELPUSECMD
@@ -76,6 +76,8 @@
 "  -C# -C#:#  Limit the number of chord-free cycles 6 carbon atoms\n" \
 "  -b    Only rings of even length (same as only cycles of even length)\n" \
 "  -T    Disallow triple bonds\n" \
+"  -N    Generate only structures with no multiple bonds\n" \
+"  -r    Traverse simple-edge counts from high to low\n" \
 "  -P    Require planarity\n" \
 "  -d#   Maximum degree not counting bond multiplicity or hydrogens (default 4)\n" \
 "  -c#   Maximum coordination number (default 4). This is the maximum number\n" \
@@ -208,6 +210,8 @@ static long maxvgroup,maxegroup;
 
 static boolean uswitch;  /* suppress output */
 static boolean verbose;  /* print more information to stderr */
+static boolean reverse_edge_order;  /* Run edge counts from maxe down to mine */
+static boolean only_no_multiple;  /* Only generate structures with mult[i] == 0 */
 static int outlevel;  /* 1 = geng only, 2 = geng+vcolg,
                        3 = geng+vcolg+multig, 4 = everything */
 static boolean smiles;  /* output in SMILES format */
@@ -3049,8 +3053,10 @@ int
 main(int argc, char *argv[])
 {
     int argnum,i,j;
+    int no_mult_edges;
     boolean badargs,Gswitch,mswitch,Oswitch,eswitch,notriples;
     boolean oswitch,Bswitch,Kswitchopt,cswitch,Dswitch;
+    boolean Nswitch,rswitch;
     char *extra1,*extra2,*formula,*arg,sw,*outfilename;
     long res,mod;
     int mine,maxe,maxd,maxc;
@@ -3080,6 +3086,7 @@ main(int argc, char *argv[])
     oswitch = gzip = alphabetic = Bswitch = Kswitchopt = FALSE;
     tswitch = fswitch = pswitch = bipartite = FALSE;
     cswitch = planar = xswitch = Dswitch = FALSE;
+    Nswitch = rswitch = FALSE;
     Oswitch = Cswitch = FALSE; outlevel = 4;
     extra1 = extra2 = formula = NULL;
     bad1 = bad2 = bad3 = bad4 = bad5 = bad6 = bad7 = bad8 = bad9 = FALSE;
@@ -3119,6 +3126,8 @@ main(int argc, char *argv[])
                 else SWBOOLEAN('u',uswitch)
                 else SWBOOLEAN('v',verbose)
                 else SWBOOLEAN('T',notriples)
+                else SWBOOLEAN('N',Nswitch)
+                else SWBOOLEAN('r',rswitch)
                 else SWBOOLEAN('S',smiles)
                 else SWBOOLEAN('F',SDFoutput)
                 else SWBOOLEAN('z',gzip)
@@ -3272,6 +3281,9 @@ main(int argc, char *argv[])
             gt_abort(">E surge : can't open output file\n");
     }
 
+    reverse_edge_order = rswitch;
+    only_no_multiple = Nswitch;
+
     maxbond = (notriples ? 1 : 2);
 
     if (mswitch)
@@ -3306,8 +3318,22 @@ main(int argc, char *argv[])
     carbonindex = elementindex("C");
     decode_formula(formula,&nv,&mine,&maxe,&maxd,&maxc);
 
+    no_mult_edges = (valencesum - hydrogens) / 2;
+    if (only_no_multiple)
+    {
+        if (no_mult_edges < mine || no_mult_edges > maxe)
+            gt_abort(">E surge : no-multiple-bond structures are impossible with this formula/options\n");
+        mine = maxe = no_mult_edges;
+    }
+
     t1 = CPUTIME;
-    start_geng(nv,maxd,maxc,mine,maxe,extra1,res,mod);
+    if (reverse_edge_order && mine < maxe)
+    {
+        for (i = maxe; i >= mine; --i)
+            start_geng(nv,maxd,maxc,i,i,extra1,res,mod);
+    }
+    else
+        start_geng(nv,maxd,maxc,mine,maxe,extra1,res,mod);
 #ifdef ZLIB
     if (gzip)
         if (gzclose(gzoutfile) != Z_OK)
