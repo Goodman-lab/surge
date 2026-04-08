@@ -48,10 +48,10 @@
 
 #ifdef ZLIB
 #define USAGE \
-  "[-oFILE] [-z] [-A|-S|-F] [-T] [-N] [-r] [-e#|-e#:#] [-B#,...,#] [-K#,...,#] [-R] [-d#] [-c#] [-m#/#] formula"
+  "[-oFILE] [-z] [-A|-S|-F] [-T] [-N] [-r] [-e#|-e#:#] [-x#|-x#:#] [-B#,...,#] [-K#,...,#] [-R] [-d#] [-c#] [-m#/#] formula"
 #else
 #define USAGE \
-  "[-oFILE] [-A|-S|-F] [-T] [-N] [-r] [-e#|-e#:#] [-B#,...,#] [-K#,...,#] [-R] [-d#] [-c#] [-m#/#] formula"
+  "[-oFILE] [-A|-S|-F] [-T] [-N] [-r] [-e#|-e#:#] [-x#|-x#:#] [-B#,...,#] [-K#,...,#] [-R] [-d#] [-c#] [-m#/#] formula"
 #endif
 
 #define HELPUSECMD
@@ -73,6 +73,7 @@
 "  -f# -f#:#  Limit the number of cycles of length 4\n" \
 "  -p# -p#:#  Limit the number of cycles of length 5\n" \
 "  -h# -h#:#  Limit the number of cycles of length 6\n" \
+"  -x# -x#:#  Limit the number of chord-free cycles of length > 6\n" \
 "  -C# -C#:#  Limit the number of chord-free cycles 6 carbon atoms\n" \
 "  -b    Only rings of even length (same as only cycles of even length)\n" \
 "  -T    Disallow triple bonds\n" \
@@ -111,7 +112,6 @@
 
 /* Undocumented options:
   -G...  Anything to the end of the parameter is passed to geng
-  -x     Used for development purposes; not useful for users
   -O#    Level for output (1,2,3, default 3)
 */
 
@@ -220,7 +220,7 @@ static int maxbond;  /* maximum mult -1 of bonds (1 if -t, else 2) */
 
 static boolean planar;  /* Molecules must be planar */
 static int maxcoord;  /* Maximum coordination number allowed */        //UNUSED
-static boolean xswitch;  /* Undocumented, used for development */
+static boolean xswitch;  /* Restrict number of chord-free cycles > 6 */
 static boolean Rswitch;  /* Enable aromaticity detection */
 
 static int carbonindex = -1;  /* Index of C */
@@ -245,6 +245,7 @@ static int count5cyc[MAXN+1];
 static boolean hswitch;
 static long min6cycles,max6cycles;  /* number of cycles of length 6 */
 static int count6cyc[MAXN+1];
+static long minxcycles,maxxcycles;  /* number of chord-free cycles > 6 */
 static boolean Cswitch;
 static long minCrings,maxCrings;  /* Number of carbon 6-rings */
 
@@ -2463,7 +2464,7 @@ void
 surgeproc(FILE *outfile, graph *gin, int n)
 /* This is called by geng for each graph. */
 {
-    int i,j,k,d,n1,n12,n34,n4,ne;
+    int i,j,k,d,n1,n12,n34,n4,ne,longringcount;
     int isize,jsize;
     graph g[MAXN];
     setword w,wxy,ww,pw,cyc,cycle8;
@@ -2529,6 +2530,14 @@ surgeproc(FILE *outfile, graph *gin, int n)
             gt_abort(">E surge : too many edges for badlists or -R\n");
 
     if (needrings) findinducedcycles(g,n);
+    if (xswitch)
+    {
+        longringcount = 0;
+        for (i = 0; i < ringcount; ++i)
+            if (POPCOUNT(inducedcycle[i]) > 6) ++longringcount;
+        if (longringcount < minxcycles || longringcount > maxxcycles)
+            return;
+    }
     if (Cswitch)
     {
         find6rings();
@@ -3135,7 +3144,7 @@ main(int argc, char *argv[])
                 else SWBOOLEAN('b',bipartite)
                 else SWBOOLEAN('P',planar)
                 else SWBOOLEAN('R',Rswitch)
-                else SWBOOLEAN('x',xswitch)
+                else SWRANGE('x',":-",xswitch,minxcycles,maxxcycles,"surge -x")
                 else SWSEQUENCEMIN('B',",",Bswitch,badlist,1,BADLISTS,badlen,"surge -B")
                 else SWSEQUENCEMIN('K',",",Kswitchopt,kbadlist,1,BADLISTS,kbadlen,"surge -K")
                 else SWRANGE('e',":-",eswitch,eminval,emaxval,"surge -e")
@@ -3240,7 +3249,7 @@ main(int argc, char *argv[])
 
     needrings = (bad1 || bad2 || bad3 || bad4 || bad6
                  || kbad1 || kbad2 || kbad3 || kbad4 || kbad6
-                 || Cswitch);
+                 || Cswitch || xswitch);
 
     if (fswitch && max4cycles < 6) bad7 = FALSE;
 
